@@ -6,8 +6,8 @@ import { CouchDB } from './db';
 
 const util = {
   path: 'https://api.weather.com',
-  apiKey: '6532d6454b8aa370768e63d6ba5a832e',
-  insightKey: '5c241d89f91274015a577e3e17d43370',
+  apiKey: '',
+  insightKey: '',
   httpGet: (url) => {
     return Observable.create((observer) => {
       https.get(url, (resp) => {
