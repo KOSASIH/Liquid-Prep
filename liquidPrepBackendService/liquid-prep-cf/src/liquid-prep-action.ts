@@ -9,20 +9,21 @@ let couchDB;
 
 export default function main(params: LiquidPrepParams) {
   let result: any;
-  couchDB = new CouchDB('liquid-prep', params.cloudantUrl);
+  //couchDB = new CouchDB('liquid-prep', params.cloudantUrl);
+  couchDB = new CouchDB('crop-info', params.cloudantUrl);
   return new Promise((resolve, reject) => {
     action.exec(params)
-    .subscribe((data) => {
-      result = data;
-      console.log('$data', result);
-    }, (err) => {
-      console.log(err);
-      const response = new IftttMessenger(params);
-      resolve(response.error('something went wrong...', 400));
-    }, () => {
-      const response = new IftttMessenger(params);
-      resolve(response.send(result));
-    });
+      .subscribe((data) => {
+        result = data;
+        console.log('$data', result);
+      }, (err) => {
+        console.log(err);
+        const response = new IftttMessenger(params);
+        resolve(response.error('something went wrong...', 400));
+      }, () => {
+        const response = new IftttMessenger(params);
+        resolve(response.send(result));
+      });
   });
 }
 
@@ -30,48 +31,80 @@ export default function main(params: LiquidPrepParams) {
 
 let action = {
   exec: (params: LiquidPrepParams) => {
-    const baseUrl = 'https://service.us.apiconnect.ibmcloud.com/gws/apigateway/api/49179127a9e2f6a723fc9874cbbff82f0d9dd1504d220c829fa4579b3c355e55/liquid-prep/';
+    //const baseUrl = 'https://service.us.apiconnect.ibmcloud.com/gws/apigateway/api/49179127a9e2f6a723fc9874cbbff82f0d9dd1504d220c829fa4579b3c355e55/liquid-prep/';
+    const baseUrl = 'https://service.us-east.apiconnect.ibmcloud.com/gws/apigateway/api/ac06cb5991ae6aa5dc50c799b05a1cbcadc93c9d815442e69a5a3acdbeb46e1d/liquid-prep';
     let path = params['__ow_headers']['x-forwarded-url'].replace(baseUrl, '').replace(/\//g, '_').replace(/\?.+/, '');
     console.log('$$$$$$', params['__ow_path'], path, params.moistureLevel, params.rainTomorrow, !params.rainTomorrow)
     params.days = params.days ? params.days : '1';
-    if(!params.date) {
+    if (!params.date) {
       const date = util.formatMD(util.getDate());
       params.date = `${date.year}${date.month}${date.day}`;
     }
     return (action[path] || action[params.method] || action.default)(params);
   },
   demo_get: (params: LiquidPrepParams) => {
-    return of({body: 'test demo get'});
+    return of({ body: 'test demo get' });
   },
   demo_post: (params: LiquidPrepParams) => {
-    return of({body: params.body});
+    return of({ body: params.body });
   },
   is_water_needed: (params: LiquidPrepParams) => {
-    if(params.rainTomorrow === undefined) {
+    if (params.rainTomorrow === undefined) {
       return Observable.create((observer) => {
         let weather = new Weather(params.apiKey, params.geoCode, params.language, params.units);
         weather.willItRainTomorrow()
+          .subscribe((data) => {
+            let soil = new Soil(params.moistureLevel, data.rain);
+            observer.next({ body: soil.isWaterNeeded() });
+            observer.complete();
+          }, (err) => {
+            console.log(err);
+            observer.error(err)
+          });
+      });
+    } else {
+      let soil = new Soil(params.moistureLevel, params.rainTomorrow === 'true');
+      return of({ body: soil.isWaterNeeded() });
+    }
+  },
+  get_weather_info: (params: LiquidPrepParams) => {
+    return Observable.create((observer) => {
+      // units will either be "m" for Celcius or "e" for Farenheit
+      // the apiKey is of weather channel and read from .env-local file
+      let weather = new Weather(params.apiKey, params.geoCode, params.language, params.units);
+      weather.getForecast()
         .subscribe((data) => {
-          let soil = new Soil(params.moistureLevel, data.rain);
-          observer.next({body: soil.isWaterNeeded()});
+          //let soil = new Soil(params.moistureLevel, data.rain);
+          console.log("weather info: ", data)
+          observer.next({ body: data });
           observer.complete();
         }, (err) => {
           console.log(err);
           observer.error(err)
-        });  
-      });
-    } else {
-      let soil = new Soil(params.moistureLevel, params.rainTomorrow === 'true');
-      return of({body: soil.isWaterNeeded()});
-    }
+        });
+    });
   },
   get_crop_list: (params: LiquidPrepParams) => {
-    if(params.body) {
+    if (params.body) {
       console.log(params.body);
       return couchDB.dbFind(params.body);
     } else {
-      let query = JSON.parse(params.query);
-      // console.log('query', query)
+      //let query = JSON.parse(params.query);
+      let query = { "selector": { "_id": { "$gt": "0" } }, "fields": ["_id"], "sort": [{ "_id": "asc" }] };
+      console.log('query', query)
+      return couchDB.dbFind(query);
+    }
+  },
+  get_crop_info: (params: LiquidPrepParams) => {
+    if (params.body) {
+      console.log(params.body);
+      return couchDB.dbFind(params.body);
+    } else {
+      //let query = JSON.parse(params.query);
+      let cropName: string = JSON.parse(params.name);
+      console.log('cropName', cropName);
+      let query = { "selector": { "_id": cropName } };
+      console.log('query', query)
       return couchDB.dbFind(query);
     }
   },
